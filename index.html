@@ -306,7 +306,29 @@ async function loadData(){
     $("#loaderr").textContent = "Не вдалося завантажити "+CFG.DATA_FILE+" ("+e.message+"). Перевір, що файл лежить поруч з index.html.";
   }
 }
-function issueRec(id){ return SAVE.issues[id] || (SAVE.issues[id] = {letters:[],hint:[],time:0,hints:0,checks:0,done:false,best:0,bestTime:0}); }
+// «Відбиток» сітки: якщо випуск змінився, старий прогрес до нього не підходить
+function sigOf(p){
+  const str = p.entries.map(e => [e.answer,e.clueCell[0],e.clueCell[1],e.dir].join(",")).join("|");
+  let h = 5381; for(let i=0;i<str.length;i++) h = ((h*33) ^ str.charCodeAt(i)) >>> 0;
+  return String(h);
+}
+function syncSaves(){
+  let changed = false;
+  DATA.forEach(p => {
+    p._sig = sigOf(p);
+    const r = SAVE.issues[p.id]; if(!r) return;
+    if(r.sig !== p._sig){
+      SAVE.issues[p.id] = {letters:[],hint:[],time:0,hints:0,checks:0,done:false,best:r.best||0,bestTime:r.bestTime||0,sig:p._sig};
+      changed = true;
+    }
+  });
+  if(SAVE.last && SAVE.issues[SAVE.last] && SAVE.issues[SAVE.last].letters.length===0) SAVE.last = null;
+  if(changed) persist();
+}
+function issueRec(id){
+  if(!SAVE.issues[id]){ const p = DATA.find(x=>x.id===id); SAVE.issues[id] = {letters:[],hint:[],time:0,hints:0,checks:0,done:false,best:0,bestTime:0,sig:p?p._sig:undefined}; }
+  return SAVE.issues[id];
+}
 function totalLetters(p){ const s = new Set(); p.entries.forEach(e=>{ const [sr,sc]=e.start; for(let i=0;i<e.answer.length;i++) s.add(e.dir==="right" ? sr*10+sc+i : (sr+i)*10+sc); }); return s.size; }
 function filledCount(rec){ return (rec.letters||[]).filter(Boolean).length; }
 
@@ -358,7 +380,7 @@ function renderIssues(){
 }
 function resetIssue(id){
   const r = SAVE.issues[id] || {};
-  SAVE.issues[id] = {letters:[],hint:[],time:0,hints:0,checks:0,done:false,best:r.best||0,bestTime:r.bestTime||0,wasDone:!!(r.done||r.wasDone)};
+  SAVE.issues[id] = {letters:[],hint:[],time:0,hints:0,checks:0,done:false,best:r.best||0,bestTime:r.bestTime||0,wasDone:!!(r.done||r.wasDone),sig:(DATA.find(x=>x.id===id)||{})._sig};
   persist();
 }
 
@@ -731,6 +753,7 @@ $("#b-reset").onclick = () => confirmBox("Скинути прогрес?", "Ус
 (async function init(){
   try{ if(tg){ tg.ready(); tg.expand(); tg.setHeaderColor && tg.setHeaderColor("#f3ead2"); tg.setBackgroundColor && tg.setBackgroundColor("#f3ead2"); tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } }catch(e){}
   await loadData();
+  syncSaves();
   renderMenu();
 })();
 </script>
