@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>Газетний сканворд</title>
+<title>Сорочинська Ярмарка</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="config.js"></script>
 <style>
@@ -31,8 +31,8 @@ button{font-family:inherit;color:inherit;cursor:pointer}
 
 /* --- меню --- */
 .masthead{text-align:center;padding:26px 0 8px}
-.mh-small{font-size:13px;letter-spacing:6px;color:#6b5f48}
-.masthead h1{margin:2px 0 6px;font-size:44px;letter-spacing:4px;font-weight:900;text-shadow:2px 2px 0 rgba(0,0,0,.12)}
+.mh-small{font-size:14px;letter-spacing:3px;color:#6b5f48;text-transform:uppercase}
+.masthead h1{margin:4px 0 8px;font-size:min(10.5vw,44px);line-height:1.05;letter-spacing:2px;font-weight:900;color:#000;text-shadow:2px 2px 0 rgba(0,0,0,.15)}
 .mh-rule{height:6px;border-top:3px solid var(--line);border-bottom:1px solid var(--line)}
 .hello{margin-top:8px;font-size:15px;color:#6b5f48;min-height:20px}
 .menu{display:flex;flex-direction:column;gap:10px;margin-top:16px}
@@ -129,8 +129,8 @@ button{font-family:inherit;color:inherit;cursor:pointer}
   <!-- МЕНЮ -->
   <section class="screen on" id="s-menu">
     <div class="masthead">
-      <div class="mh-small">ГАЗЕТНИЙ</div>
-      <h1>СКАНВОРД</h1>
+      <div class="mh-small">Газетні сканворди</div>
+      <h1>СОРОЧИНСЬКА<br>ЯРМАРКА</h1>
       <div class="mh-rule"></div>
       <div class="hello" id="hello"></div>
     </div>
@@ -158,7 +158,7 @@ button{font-family:inherit;color:inherit;cursor:pointer}
       <div class="panel" id="panel">
         <div class="cluebar" id="clueBar"></div>
         <div class="actions">
-          <button id="a-hint">💡 Підказка</button>
+          <button id="a-hint">💡 Підказка (5)</button>
           <button id="a-check">✔ Перевірити</button>
           <button id="a-list">☰ Питання</button>
         </div>
@@ -177,10 +177,11 @@ button{font-family:inherit;color:inherit;cursor:pointer}
         <li>Торкнись клітинки з питанням або літерної клітинки — слово підсвітиться, а питання з'явиться над клавіатурою.</li>
         <li>Клітинка на перетині двох слів спільна. Торкнись її ще раз, щоб перемкнути напрямок.</li>
         <li>Фіолетові клітинки з 📷 — «Хто на фото?». Вписуй прізвище або псевдонім. Торкнись фото в рядку питання, щоб побачити його на весь екран.</li>
+        <li>Фото підтягуються з Вікіпедії, тож потрібен інтернет. Якщо фото не завантажилось — орієнтуйся на підказку в дужках.</li>
         <li>Літера «Ь» і апостроф (') — звичайні клітинки зі своїми кнопками.</li>
         <li>У відповідях немає пробілів і дефісів — усе пишеться разом.</li>
       </ul>
-      <p><b>Очки:</b> старт 1000. Мінус 1 за кожні 3 секунди, мінус 50 за підказку, мінус 20 за перевірку, у якій знайшлися помилки. Мінімум — 100.</p>
+      <p><b>Очки:</b> старт 1000. Мінус 1 за кожні 3 секунди, мінус 50 за підказку (їх 5 на кожен випуск), мінус 20 за перевірку, у якій знайшлися помилки. Мінімум — 100.</p>
       <p>Прогрес зберігається сам. Можна вийти й повернутися будь-коли.</p>
     </div>
   </section>
@@ -210,7 +211,8 @@ const CFG = Object.assign({BOT_LINK:"",FIREBASE_DB_URL:"",DATA_FILE:"scanwords.j
 const tg = (window.Telegram && window.Telegram.WebApp) || null;
 const $ = s => document.querySelector(s);
 const SAVE_KEY = "scanword_v1";
-const EMO = {"Кіно":"🎬","Музика":"🎵","Спорт":"⚽","Політика":"🏛️","Кулінарія":"🍲","Релігія":"⛪","Історія й географія":"🌍","Тварини":"🐾"};
+const HINT_LIMIT = 5;
+const EMO = {"Кіно":"🎬","Музика":"🎵","Спорт":"⚽","Політика":"🏛️","Кулінарія":"🍲","Релігія":"⛪","Історія й географія":"🌍","Тварини":"🐾","Література":"📚"};
 const KB_ROWS = [
   ["Й","Ц","У","К","Е","Н","Г","Ш","Щ","З","Х","Ї"],
   ["Ф","І","В","А","П","Р","О","Л","Д","Ж","Є","Ґ"],
@@ -369,19 +371,46 @@ function photoCandidates(path){
   [dir,""].forEach(d => ["jpg","jpeg","png","webp"].forEach(x => out.push(d+stem+"."+x)));
   return [...new Set(out)];
 }
-function findPhoto(path){
+function loadImg(u){
+  return new Promise(res => { const im = new Image(); im.onload = () => res(true); im.onerror = () => res(false); im.src = u; });
+}
+async function wikiFetch(url){
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 7000);
+  try{ const r = await fetch(url, {signal:ctl.signal}); if(!r.ok) return null; return await r.json(); }
+  catch(e){ return null; } finally{ clearTimeout(t); }
+}
+// Фото з Вікіпедії за назвою статті (або пошуком, якщо точної статті немає)
+async function wikiThumb(title){
+  const key = "wk1_"+title;
+  try{ const c = localStorage.getItem(key); if(c) return c; }catch(e){}
+  let url = null;
+  const j = await wikiFetch("https://uk.wikipedia.org/api/rest_v1/page/summary/"+encodeURIComponent(title.replace(/ /g,"_"))+"?redirect=true");
+  if(j && j.thumbnail && j.thumbnail.source) url = j.thumbnail.source;
+  if(!url){
+    const q = "https://uk.wikipedia.org/w/api.php?action=query&format=json&origin=*&redirects=1&generator=search&gsrlimit=1&prop=pageimages&piprop=thumbnail&pithumbsize=400&gsrsearch="+encodeURIComponent(title);
+    const k = await wikiFetch(q);
+    const pg = k && k.query && k.query.pages ? Object.values(k.query.pages)[0] : null;
+    if(pg && pg.thumbnail && pg.thumbnail.source) url = pg.thumbnail.source;
+  }
+  if(url){ try{ localStorage.setItem(key, url); }catch(e){} }
+  return url;
+}
+function findPhoto(e){
+  const path = e.photo;
   if(photoCache[path]!==undefined) return Promise.resolve(photoCache[path]);
-  const urls = photoCandidates(path);
-  return new Promise(res => {
-    let i = 0;
-    const next = () => {
-      if(i>=urls.length){ photoCache[path] = null; return res(null); }
-      const u = urls[i++]+"?v="+encodeURIComponent(CFG.VERSION), im = new Image();
-      im.onload = () => { photoCache[path] = u; res(u); };
-      im.onerror = next; im.src = u;
-    };
-    next();
-  });
+  return (async () => {
+    // 1) власний файл із репозиторію має пріоритет
+    for(const c of photoCandidates(path)){
+      const u = c+"?v="+encodeURIComponent(CFG.VERSION);
+      if(await loadImg(u)){ photoCache[path] = u; return u; }
+    }
+    // 2) інакше — Вікіпедія
+    if(e.wiki){
+      const u = await wikiThumb(e.wiki);
+      if(u && await loadImg(u)){ photoCache[path] = u; return u; }
+    }
+    photoCache[path] = null; return null;
+  })();
 }
 
 function startGame(id){
@@ -409,13 +438,13 @@ function startGame(id){
   SAVE.last = id; persist();
   $("#g-title").textContent = "Випуск №"+id;
   $("#g-time").textContent = fmt(S.time);
-  buildGrid(); buildKeyboard();
+  buildGrid(); buildKeyboard(); updateHintBtn();
   const e0 = entries.find(e => e.cells.some(k=>!S.letters[k])) || entries[0];
   S.cur = firstEmpty(e0); S.dir = e0.dir;
   show("s-game");
   paint(); updateBar(); startTimer();
   // фото у клітинках
-  entries.forEach(e => { if(e.type==="photo") findPhoto(e.photo).then(u => { if(S && S.p===p){ paintPhotos(); updateBar(); } }); });
+  entries.forEach(e => { if(e.type==="photo") findPhoto(e).then(u => { if(S && S.p===p){ paintPhotos(); updateBar(); } }); });
 }
 function buildGrid(){
   const g = $("#grid"); g.innerHTML = ""; S.els = [];
@@ -555,13 +584,18 @@ function save(){
   rec.time = S.time; rec.hints = S.hints; rec.checks = S.checks;
   persist();
 }
+function updateHintBtn(){
+  const left = Math.max(0, HINT_LIMIT - (S ? S.hints : 0));
+  const b = $("#a-hint"); b.textContent = "💡 Підказка ("+left+")"; b.style.opacity = left ? "1" : ".45";
+}
 $("#a-hint").onclick = () => {
   if(!S || S.done) return;
+  if(S.hints>=HINT_LIMIT){ sound.err(); toast("Підказки в цьому випуску закінчилися"); return; }
   const e = activeEntry(); if(!e) return;
   let k = S.cur;
   if(S.letters[k]===S.sol[k]) { const f = e.cells.find(c => S.letters[c]!==S.sol[c]); if(f===undefined){ toast("Це слово вже розгадано"); return; } k = f; }
   S.letters[k] = S.sol[k]; S.hint[k] = 1; S.bad[k] = 0; S.hints++; S.cur = k;
-  sound.ok(); haptic(); toast("Підказка: −50 очок");
+  sound.ok(); haptic(); updateHintBtn(); toast("Підказка: −50 очок. Лишилось: "+(HINT_LIMIT-S.hints));
   paint(); updateBar(); save(); checkWin();
 };
 $("#a-check").onclick = () => {
@@ -641,7 +675,8 @@ async function pushScore(){
 }
 async function renderFame(){
   const box = $("#fameBody"), t = totals(), u = userInfo(), base = fbBase();
-  let html = '<p class="note"><b>Твої результати:</b> розв\'язано '+t.solved+' із '+DATA.length+', разом очок: <b>'+t.score+'</b></p>';
+  let html = '<div class="row me"><div class="pos">👤</div><div class="nm">'+(u?esc(u.name):"Мій профіль")+'</div><div class="sc">'+t.score+' очок</div></div>'
+    + '<p class="note">Розв\'язано сканвордів: <b>'+t.solved+'</b> із '+DATA.length+'</p>';
   box.innerHTML = html;
   if(!base){
     box.insertAdjacentHTML("beforeend", '<p class="note">Загальний рейтинг гравців поки не підключено. Додай адресу Firebase у файл <b>config.js</b>, і тут з\'явиться таблиця лідерів.</p>');
@@ -663,15 +698,6 @@ async function renderFame(){
       });
     }catch(e){ const f = $("#fl"); if(f) f.textContent = "Не вдалося завантажити рейтинг."; }
   }
-  // особисті рекорди
-  box.insertAdjacentHTML("beforeend", '<h3 style="margin:16px 0 4px">Мої рекорди</h3>');
-  DATA.forEach(p => {
-    const r = SAVE.issues[p.id]; if(!r || !r.best) return;
-    const d = document.createElement("div"); d.className = "row";
-    d.innerHTML = '<div class="pos">№'+p.id+'</div><div class="nm">'+fmt(r.bestTime||0)+'</div><div class="sc">'+r.best+'</div>';
-    box.appendChild(d);
-  });
-  if(!t.solved) box.insertAdjacentHTML("beforeend", '<p class="note">Тут з\'являться твої рекорди.</p>');
 }
 
 /* ============ Розмітка під екран ============ */
