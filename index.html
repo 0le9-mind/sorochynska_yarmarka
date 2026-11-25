@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Газетний сканворд</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="config.js"></script>
+<style>
+:root{
+  --paper:#f3ead2; --paper2:#ebe0c3; --ink:#1d1a16; --line:#2a2620;
+  --clue:#dde6ee; --photo:#e4d9f0; --block:#d6ccb0; --cellbg:#fffdf5;
+  --word:#fff0b3; --sel:#ffc83d; --err:#c62828; --hint:#1565c0; --ok:#2e7d32; --accent:#b3261e;
+  --cell:34px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--paper);color:var(--ink);
+  font-family:Georgia,"Times New Roman",serif;overflow:hidden;
+  -webkit-user-select:none;user-select:none;touch-action:manipulation}
+button{font-family:inherit;color:inherit;cursor:pointer}
+#app{position:fixed;inset:0}
+.screen{position:absolute;inset:0;display:none;flex-direction:column;overflow-y:auto;padding:0 14px 18px}
+.screen.on{display:flex}
+.hidden{display:none!important}
+
+/* --- шапка екранів --- */
+.head{display:flex;align-items:center;gap:10px;height:46px;flex:0 0 46px;border-bottom:2px solid var(--line);margin:0 -14px 10px;padding:0 14px}
+.head h2{margin:0;font-size:19px;flex:1;letter-spacing:.5px}
+.icon{width:36px;height:34px;border:2px solid var(--line);background:var(--paper2);border-radius:6px;font-size:18px;line-height:1}
+.time{font-family:"Courier New",monospace;font-weight:700;font-size:17px;min-width:56px;text-align:right}
+
+/* --- меню --- */
+.masthead{text-align:center;padding:26px 0 8px}
+.mh-small{font-size:13px;letter-spacing:6px;color:#6b5f48}
+.masthead h1{margin:2px 0 6px;font-size:44px;letter-spacing:4px;font-weight:900;text-shadow:2px 2px 0 rgba(0,0,0,.12)}
+.mh-rule{height:6px;border-top:3px solid var(--line);border-bottom:1px solid var(--line)}
+.hello{margin-top:8px;font-size:15px;color:#6b5f48;min-height:20px}
+.menu{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.btn{border:2px solid var(--line);background:var(--paper2);border-radius:10px;padding:13px 14px;font-size:17px;font-weight:700;text-align:left;box-shadow:3px 3px 0 var(--line)}
+.btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--line)}
+.btn.primary{background:var(--sel)}
+.btn[disabled]{opacity:.45}
+.err{color:var(--err);margin-top:12px;font-size:14px;text-align:center}
+.note{font-size:14px;color:#6b5f48;line-height:1.4;margin:8px 0}
+
+/* --- список випусків --- */
+.issue{display:flex;align-items:center;gap:10px;border:2px solid var(--line);background:var(--cellbg);border-radius:10px;padding:10px 12px;margin-bottom:9px}
+.issue .no{font-size:24px;font-weight:900;width:44px;text-align:center;color:var(--accent)}
+.issue .mid{flex:1;min-width:0}
+.issue .t{font-weight:700;font-size:16px}
+.issue .s{font-size:13px;color:#6b5f48;margin-top:2px}
+.bar{height:6px;background:#ddd2b5;border:1px solid var(--line);border-radius:4px;margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ok)}
+.issue .go{border:2px solid var(--line);background:var(--sel);border-radius:8px;padding:8px 10px;font-weight:700;font-size:15px}
+.issue .rs{border:2px solid var(--line);background:var(--paper2);border-radius:8px;padding:8px 9px;font-size:15px}
+
+/* --- гра --- */
+#s-game{overflow:hidden;padding:0 8px 8px}
+#s-game .head{margin:0 -8px 6px;padding:0 10px}
+.gbody{flex:1;display:flex;flex-direction:column;align-items:center;min-height:0;gap:6px}
+.gridwrap{flex:0 0 auto;display:flex;justify-content:center}
+.grid{display:grid;grid-template-columns:repeat(10,1fr);grid-template-rows:repeat(10,1fr);gap:1px;background:var(--line);border:2px solid var(--line)}
+.cell{position:relative;background:var(--cellbg);display:flex;align-items:center;justify-content:center;
+  font-family:Arial,Helvetica,sans-serif;font-weight:700;overflow:hidden;font-size:calc(var(--cell)*.58);line-height:1}
+.cell.block{background:repeating-linear-gradient(45deg,#d9cfb4 0 3px,#cfc4a6 3px 6px)}
+.cell.clue{background:var(--clue);cursor:pointer}
+.cell.clue.photo{background-color:var(--photo);background-size:cover;background-position:center top}
+.cell.clue.active{box-shadow:inset 0 0 0 3px var(--sel)}
+.cell.letter{cursor:pointer}
+.cell.inword{background:var(--word)}
+.cell.cur{background:var(--sel)}
+.cell.bad{color:var(--err);background:#ffd6d2}
+.cell.hint{color:var(--hint)}
+.cell .num{position:absolute;left:2px;top:1px;font-size:calc(var(--cell)*.23);font-weight:700;color:#3c4656;
+  text-shadow:0 0 3px #fff,0 0 3px #fff}
+.cell .emo{font-size:calc(var(--cell)*.46);line-height:1}
+.cell .arr{position:absolute;font-size:calc(var(--cell)*.24);color:var(--accent);text-shadow:0 0 3px #fff,0 0 3px #fff}
+.cell .arr.right{right:1px;top:50%;transform:translateY(-50%)}
+.cell .arr.down{bottom:0;left:50%;transform:translateX(-50%)}
+.panel{width:100%;display:flex;flex-direction:column;gap:6px;min-height:0}
+.cluebar{height:58px;flex:0 0 58px;display:flex;align-items:center;gap:8px;border:2px solid var(--line);background:var(--cellbg);border-radius:8px;padding:4px 8px;overflow:hidden}
+.cluebar .th{width:46px;height:46px;flex:0 0 46px;border:2px solid var(--line);border-radius:6px;background:var(--clue) center/cover;display:flex;align-items:center;justify-content:center;font-size:22px}
+.cluebar .tx{font-size:15px;line-height:1.2;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cluebar .tx b{color:var(--accent)}
+.actions{display:flex;gap:6px;flex:0 0 40px}
+.actions button{flex:1;border:2px solid var(--line);background:var(--paper2);border-radius:8px;font-size:14px;font-weight:700;padding:0 2px}
+.actions button:active{background:var(--sel)}
+.kb{display:flex;flex-direction:column;gap:5px;flex:0 0 auto}
+.kr{display:flex;gap:4px;justify-content:center}
+.key{flex:1;max-width:44px;height:40px;border:2px solid var(--line);border-bottom-width:4px;background:#fffaf0;border-radius:7px;font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:700;padding:0}
+.key:active{background:var(--sel);transform:translateY(2px);border-bottom-width:2px}
+.key.wide{flex:1.5;max-width:60px;background:var(--paper2)}
+@media (orientation:landscape) and (min-aspect-ratio:11/10){
+  .gbody{flex-direction:row;align-items:flex-start;gap:12px}
+  .panel{flex:1;min-width:0}
+}
+
+/* --- модалки і тости --- */
+.modal{position:fixed;inset:0;background:rgba(20,16,10,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:20}
+.mbox{background:var(--paper);border:3px solid var(--line);border-radius:12px;padding:16px;max-width:420px;width:100%;max-height:86%;overflow:auto;box-shadow:5px 5px 0 var(--line)}
+.mbox h3{margin:0 0 8px;font-size:21px}
+.mbox p{margin:6px 0;line-height:1.4}
+.mbtns{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.mbox img.big{width:100%;border:2px solid var(--line);border-radius:8px;display:block}
+.qitem{display:flex;gap:8px;align-items:flex-start;border-bottom:1px dashed #b8ac8a;padding:8px 2px;cursor:pointer;font-size:15px;line-height:1.25}
+.qitem .q1{width:62px;flex:0 0 62px;font-weight:700;color:var(--accent)}
+.qitem.done{opacity:.55;text-decoration:line-through}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:20px;font-size:15px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:30;max-width:90%;text-align:center}
+.toast.on{opacity:.95}
+
+/* --- зал слави, довідка --- */
+.row{display:flex;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid #c9bd9b}
+.row .pos{width:32px;font-weight:900;font-size:18px;text-align:center}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}
+.row .sc{font-family:"Courier New",monospace;font-weight:700}
+.row.me{background:var(--word)}
+.help p,.help li{line-height:1.45;font-size:16px}
+.help ul{padding-left:20px;margin:6px 0}
+.switch{display:flex;align-items:center;justify-content:space-between;padding:12px 4px;border-bottom:1px solid #c9bd9b;font-size:17px}
+.tog{width:56px;height:30px;border:2px solid var(--line);border-radius:16px;background:#ddd2b5;position:relative}
+.tog::after{content:"";position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:var(--ink);transition:left .15s}
+.tog.on{background:var(--ok)}
+.tog.on::after{left:28px;background:#fff}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- МЕНЮ -->
+  <section class="screen on" id="s-menu">
+    <div class="masthead">
+      <div class="mh-small">ГАЗЕТНИЙ</div>
+      <h1>СКАНВОРД</h1>
+      <div class="mh-rule"></div>
+      <div class="hello" id="hello"></div>
+    </div>
+    <div class="menu">
+      <button class="btn primary" id="b-continue">▶ Продовжити</button>
+      <button class="btn" id="b-issues">🎮 Обрати випуск</button>
+      <button class="btn" id="b-help">📜 Як грати</button>
+      <button class="btn" id="b-fame">🏆 Зал слави</button>
+      <button class="btn" id="b-settings">⚙️ Налаштування</button>
+    </div>
+    <div class="err" id="loaderr"></div>
+  </section>
+
+  <!-- ВИПУСКИ -->
+  <section class="screen" id="s-issues">
+    <div class="head"><button class="icon" data-back>←</button><h2>Обери випуск</h2></div>
+    <div id="issueList"></div>
+  </section>
+
+  <!-- ГРА -->
+  <section class="screen" id="s-game">
+    <div class="head"><button class="icon" id="g-back">←</button><h2 id="g-title">Випуск</h2><div class="time" id="g-time">00:00</div></div>
+    <div class="gbody" id="gbody">
+      <div class="gridwrap" id="gridwrap"><div class="grid" id="grid"></div></div>
+      <div class="panel" id="panel">
+        <div class="cluebar" id="clueBar"></div>
+        <div class="actions">
+          <button id="a-hint">💡 Підказка</button>
+          <button id="a-check">✔ Перевірити</button>
+          <button id="a-list">☰ Питання</button>
+        </div>
+        <div class="kb" id="kb"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ЯК ГРАТИ -->
+  <section class="screen" id="s-help">
+    <div class="head"><button class="icon" data-back>←</button><h2>📜 Як грати</h2></div>
+    <div class="help">
+      <p>Це класичний газетний сканворд: у кожній синій клітинці — питання, а відповідь вписується в сусідні клітинки у напрямку стрілки.</p>
+      <ul>
+        <li><b style="color:var(--accent)">▶</b> — слово йде вправо, <b style="color:var(--accent)">▼</b> — униз.</li>
+        <li>Торкнись клітинки з питанням або літерної клітинки — слово підсвітиться, а питання з'явиться над клавіатурою.</li>
+        <li>Клітинка на перетині двох слів спільна. Торкнись її ще раз, щоб перемкнути напрямок.</li>
+        <li>Фіолетові клітинки з 📷 — «Хто на фото?». Вписуй прізвище або псевдонім. Торкнись фото в рядку питання, щоб побачити його на весь екран.</li>
+        <li>Літера «Ь» і апостроф (') — звичайні клітинки зі своїми кнопками.</li>
+        <li>У відповідях немає пробілів і дефісів — усе пишеться разом.</li>
+      </ul>
+      <p><b>Очки:</b> старт 1000. Мінус 1 за кожні 3 секунди, мінус 50 за підказку, мінус 20 за перевірку, у якій знайшлися помилки. Мінімум — 100.</p>
+      <p>Прогрес зберігається сам. Можна вийти й повернутися будь-коли.</p>
+    </div>
+  </section>
+
+  <!-- ЗАЛ СЛАВИ -->
+  <section class="screen" id="s-fame">
+    <div class="head"><button class="icon" data-back>←</button><h2>🏆 Зал слави</h2></div>
+    <div id="fameBody"></div>
+  </section>
+
+  <!-- НАЛАШТУВАННЯ -->
+  <section class="screen" id="s-settings">
+    <div class="head"><button class="icon" data-back>←</button><h2>⚙️ Налаштування</h2></div>
+    <div class="switch"><span>🔊 Звук</span><button class="tog" id="t-sound"></button></div>
+    <div class="menu"><button class="btn" id="b-reset">🗑 Скинути весь прогрес</button></div>
+    <p class="note">Мова гри — українська. Версія даних: <span id="ver"></span></p>
+  </section>
+
+  <div class="modal hidden" id="modal"><div class="mbox" id="mbox"></div></div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+"use strict";
+/* ============ Налаштування і утиліти ============ */
+const CFG = Object.assign({BOT_LINK:"",FIREBASE_DB_URL:"",DATA_FILE:"scanwords.json",VERSION:"1"}, window.APP_CONFIG||{});
+const tg = (window.Telegram && window.Telegram.WebApp) || null;
+const $ = s => document.querySelector(s);
+const SAVE_KEY = "scanword_v1";
+const EMO = {"Кіно":"🎬","Музика":"🎵","Спорт":"⚽","Політика":"🏛️","Кулінарія":"🍲","Релігія":"⛪","Історія й географія":"🌍","Тварини":"🐾"};
+const KB_ROWS = [
+  ["Й","Ц","У","К","Е","Н","Г","Ш","Щ","З","Х","Ї"],
+  ["Ф","І","В","А","П","Р","О","Л","Д","Ж","Є","Ґ"],
+  ["'","Я","Ч","С","М","И","Т","Ь","Б","Ю","⌫"]
+];
+const ALPHA = new Set("АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ'");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = t => String(Math.floor(t/60)).padStart(2,"0")+":"+String(t%60).padStart(2,"0");
+
+let DATA = [];
+let SAVE = loadSave();
+let S = null;            // стан поточної гри
+let timer = null;
+let stack = ["s-menu"];  // історія екранів
+
+function loadSave(){
+  try{ const o = JSON.parse(localStorage.getItem(SAVE_KEY)); if(o && typeof o==="object") return Object.assign({sound:true,last:null,issues:{}}, o); }catch(e){}
+  return {sound:true,last:null,issues:{}};
+}
+function persist(){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); }catch(e){} }
+
+/* ============ Звук ============ */
+let AC = null;
+function beep(freq, dur, type, vol, delay){
+  if(!SAVE.sound) return;
+  try{
+    AC = AC || new (window.AudioContext||window.webkitAudioContext)();
+    const t0 = AC.currentTime + (delay||0);
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type||"square"; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol||0.05, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+    o.connect(g); g.connect(AC.destination); o.start(t0); o.stop(t0+dur+0.02);
+  }catch(e){}
+}
+const sound = {
+  tick: () => beep(620,0.04,"square",0.03),
+  err:  () => { beep(180,0.18,"sawtooth",0.05); },
+  ok:   () => { beep(660,0.09,"triangle",0.06); beep(880,0.12,"triangle",0.06,0.09); },
+  win:  () => [523,659,784,1047].forEach((f,i)=>beep(f,0.18,"triangle",0.07,i*0.14))
+};
+function haptic(kind){ try{ tg && tg.HapticFeedback && (kind==="err" ? tg.HapticFeedback.notificationOccurred("error") : tg.HapticFeedback.impactOccurred("light")); }catch(e){} }
+
+/* ============ Екрани ============ */
+function show(id, push){
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id===id));
+  if(push!==false){ if(stack[stack.length-1]!==id) stack.push(id); }
+  if(id==="s-game"){ requestAnimationFrame(layout); }
+}
+function back(){
+  if(timer && $("#s-game").classList.contains("on")) stopTimer();
+  if(stack.length>1) stack.pop();
+  const id = stack[stack.length-1];
+  show(id,false);
+  if(id==="s-menu") renderMenu();
+  if(id==="s-issues") renderIssues();
+}
+function toast(msg){
+  const t = $("#toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(toast.h); toast.h = setTimeout(()=>t.classList.remove("on"), 1800);
+}
+function openModal(html, buttons){
+  const box = $("#mbox"); box.innerHTML = html;
+  const wrap = document.createElement("div"); wrap.className = "mbtns";
+  (buttons||[]).forEach(b=>{
+    const el = document.createElement("button"); el.className = "btn"+(b.primary?" primary":""); el.textContent = b.text;
+    el.onclick = () => { closeModal(); b.fn && b.fn(); };
+    wrap.appendChild(el);
+  });
+  if(buttons && buttons.length) box.appendChild(wrap);
+  $("#modal").classList.remove("hidden");
+}
+function closeModal(){ $("#modal").classList.add("hidden"); }
+$("#modal").addEventListener("click", e => { if(e.target.id==="modal") closeModal(); });
+function confirmBox(title, text, yes, fn){
+  openModal("<h3>"+esc(title)+"</h3><p>"+esc(text)+"</p>", [{text:yes,primary:true,fn},{text:"Скасувати"}]);
+}
+
+/* ============ Дані ============ */
+async function loadData(){
+  try{
+    const r = await fetch(CFG.DATA_FILE+"?v="+encodeURIComponent(CFG.VERSION), {cache:"no-cache"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    let j = await r.json();
+    if(!Array.isArray(j)) j = [j];
+    DATA = j.flat().filter(p => p && Array.isArray(p.entries));
+    if(!DATA.length) throw new Error("порожній файл");
+    $("#loaderr").textContent = "";
+  }catch(e){
+    DATA = [];
+    $("#loaderr").textContent = "Не вдалося завантажити "+CFG.DATA_FILE+" ("+e.message+"). Перевір, що файл лежить поруч з index.html.";
+  }
+}
+function issueRec(id){ return SAVE.issues[id] || (SAVE.issues[id] = {letters:[],hint:[],time:0,hints:0,checks:0,done:false,best:0,bestTime:0}); }
+function totalLetters(p){ const s = new Set(); p.entries.forEach(e=>{ const [sr,sc]=e.start; for(let i=0;i<e.answer.length;i++) s.add(e.dir==="right" ? sr*10+sc+i : (sr+i)*10+sc); }); return s.size; }
+function filledCount(rec){ return (rec.letters||[]).filter(Boolean).length; }
+
+/* ============ Меню ============ */
+function userInfo(){
+  const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  return u ? {id:String(u.id), name:[u.first_name,u.last_name].filter(Boolean).join(" ") || u.username || "Гравець"} : null;
+}
+function inProgressId(){
+  if(SAVE.last && DATA.some(p=>p.id===SAVE.last)){ const r = SAVE.issues[SAVE.last]; if(r && !r.done && filledCount(r)>0) return SAVE.last; }
+  const p = DATA.find(p => { const r = SAVE.issues[p.id]; return r && !r.done && filledCount(r)>0; });
+  return p ? p.id : null;
+}
+function nextUnsolvedId(){
+  const p = DATA.find(p => !(SAVE.issues[p.id] && SAVE.issues[p.id].done));
+  return p ? p.id : (DATA[0] && DATA[0].id);
+}
+function renderMenu(){
+  const u = userInfo();
+  $("#hello").textContent = u ? "Вітаю, "+u.name+"!" : "";
+  const solved = DATA.filter(p => SAVE.issues[p.id] && SAVE.issues[p.id].done).length;
+  const cont = $("#b-continue");
+  const ip = inProgressId();
+  cont.disabled = !DATA.length;
+  cont.textContent = ip ? "▶ Продовжити (випуск №"+ip+")" : "▶ Грати (випуск №"+(nextUnsolvedId()||"—")+")";
+  $("#b-issues").textContent = "🎮 Обрати випуск"+(DATA.length ? " ("+solved+"/"+DATA.length+")" : "");
+}
+function renderIssues(){
+  const box = $("#issueList"); box.innerHTML = "";
+  DATA.forEach(p => {
+    const rec = SAVE.issues[p.id] || {};
+    const tot = totalLetters(p), fl = filledCount(rec);
+    let status, pct;
+    if(rec.done){ status = "✓ Розв'язано · "+rec.best+" очок · "+fmt(rec.bestTime||0); pct = 100; }
+    else if(fl>0){ status = "У процесі · "+fl+" із "+tot+" літер"; pct = Math.round(fl/tot*100); }
+    else { status = p.entries.length+" слів · нова"; pct = 0; }
+    const d = document.createElement("div"); d.className = "issue";
+    d.innerHTML = '<div class="no">'+p.id+'</div><div class="mid"><div class="t">'+esc(p.title)+'</div><div class="s">'+esc(status)+'</div><div class="bar"><i style="width:'+pct+'%"></i></div></div>';
+    if(rec.done || fl>0){
+      const rs = document.createElement("button"); rs.className = "rs"; rs.textContent = "↺"; rs.title = "Почати заново";
+      rs.onclick = ev => { ev.stopPropagation(); confirmBox("Почати заново?", "Поточний прогрес випуску №"+p.id+" буде стерто"+(rec.done?" (найкращий результат збережеться).":"."), "Так, заново", () => { resetIssue(p.id); renderIssues(); }); };
+      d.appendChild(rs);
+    }
+    const go = document.createElement("button"); go.className = "go"; go.textContent = rec.done ? "Ще раз" : (fl>0 ? "Далі" : "Грати");
+    go.onclick = () => { if(rec.done) resetIssue(p.id); startGame(p.id); };
+    d.appendChild(go);
+    box.appendChild(d);
+  });
+}
+function resetIssue(id){
+  const r = SAVE.issues[id] || {};
+  SAVE.issues[id] = {letters:[],hint:[],time:0,hints:0,checks:0,done:false,best:r.best||0,bestTime:r.bestTime||0,wasDone:!!(r.done||r.wasDone)};
+  persist();
+}
+
+/* ============ Гра: побудова ============ */
+const photoCache = {};
+function photoCandidates(path){
+  const base = path.replace(/^\.\//,""), name = base.split("/").pop();
+  const stem = name.replace(/\.[^.]+$/,""), dir = base.slice(0, base.length-name.length);
+  const out = [];
+  [dir,""].forEach(d => ["jpg","jpeg","png","webp"].forEach(x => out.push(d+stem+"."+x)));
+  return [...new Set(out)];
+}
+function findPhoto(path){
+  if(photoCache[path]!==undefined) return Promise.resolve(photoCache[path]);
+  const urls = photoCandidates(path);
+  return new Promise(res => {
+    let i = 0;
+    const next = () => {
+      if(i>=urls.length){ photoCache[path] = null; return res(null); }
+      const u = urls[i++]+"?v="+encodeURIComponent(CFG.VERSION), im = new Image();
+      im.onload = () => { photoCache[path] = u; res(u); };
+      im.onerror = next; im.src = u;
+    };
+    next();
+  });
+}
+
+function startGame(id){
+  const p = DATA.find(x => x.id===id); if(!p) return;
+  const rec = issueRec(id);
+  const sol = Array(100).fill(""), kind = Array(100).fill("block"), cm = {}, clueAt = {};
+  const entries = p.entries.map((e,i) => Object.assign({}, e, {num:i+1, cells:[]}));
+  entries.forEach(e => {
+    const k0 = e.clueCell[0]*10 + e.clueCell[1];
+    kind[k0] = "clue"; clueAt[k0] = e;
+    for(let i=0;i<e.answer.length;i++){
+      const r = e.dir==="right" ? e.start[0] : e.start[0]+i;
+      const c = e.dir==="right" ? e.start[1]+i : e.start[1];
+      const k = r*10+c;
+      sol[k] = e.answer[i]; kind[k] = "letter";
+      (cm[k] = cm[k]||{})[e.dir] = e; e.cells.push(k);
+    }
+  });
+  S = {id, p, sol, kind, cm, clueAt, entries,
+       letters: Array.from({length:100},(_,k)=>rec.letters[k]||""),
+       hint: Array.from({length:100},(_,k)=>rec.hint[k]?1:0),
+       bad: Array(100).fill(0),
+       time: rec.time||0, hints: rec.hints||0, checks: rec.checks||0,
+       cur: null, dir: "right", done: false, els: []};
+  SAVE.last = id; persist();
+  $("#g-title").textContent = "Випуск №"+id;
+  $("#g-time").textContent = fmt(S.time);
+  buildGrid(); buildKeyboard();
+  const e0 = entries.find(e => e.cells.some(k=>!S.letters[k])) || entries[0];
+  S.cur = firstEmpty(e0); S.dir = e0.dir;
+  show("s-game");
+  paint(); updateBar(); startTimer();
+  // фото у клітинках
+  entries.forEach(e => { if(e.type==="photo") findPhoto(e.photo).then(u => { if(S && S.p===p){ paintPhotos(); updateBar(); } }); });
+}
+function buildGrid(){
+  const g = $("#grid"); g.innerHTML = ""; S.els = [];
+  for(let k=0;k<100;k++){
+    const d = document.createElement("div"); d.className = "cell "+S.kind[k]; d.dataset.k = k;
+    if(S.kind[k]==="clue"){
+      const e = S.clueAt[k];
+      d.classList.toggle("photo", e.type==="photo");
+      d.innerHTML = '<span class="num">'+e.num+'</span><span class="emo">'+(e.type==="photo"?"📷":(EMO[e.topic]||"❓"))+'</span><span class="arr '+e.dir+'">'+(e.dir==="right"?"▶":"▼")+'</span>';
+    }
+    g.appendChild(d); S.els.push(d);
+  }
+}
+function paintPhotos(){
+  S.entries.forEach(e => {
+    if(e.type!=="photo") return;
+    const el = S.els[e.clueCell[0]*10+e.clueCell[1]], u = photoCache[e.photo];
+    if(u){ el.style.backgroundImage = "url('"+u+"')"; el.querySelector(".emo").style.display = "none"; }
+  });
+}
+function buildKeyboard(){
+  const kb = $("#kb"); kb.innerHTML = "";
+  KB_ROWS.forEach(row => {
+    const r = document.createElement("div"); r.className = "kr";
+    row.forEach(ch => {
+      const b = document.createElement("button"); b.className = "key"+(ch==="⌫"?" wide":""); b.textContent = ch; b.dataset.k = ch;
+      r.appendChild(b);
+    });
+    kb.appendChild(r);
+  });
+}
+$("#kb").addEventListener("pointerdown", e => {
+  const b = e.target.closest(".key"); if(!b) return;
+  e.preventDefault();
+  if(b.dataset.k==="⌫") backspace(); else typeCh(b.dataset.k);
+});
+
+/* ============ Гра: стан і відображення ============ */
+function activeEntry(){
+  if(!S || S.cur==null) return null;
+  const m = S.cm[S.cur]; if(!m) return null;
+  return m[S.dir] || m.right || m.down || null;
+}
+function firstEmpty(e){ const k = e.cells.find(k => !S.letters[k]); return k===undefined ? e.cells[0] : k; }
+function paint(){
+  const ae = activeEntry();
+  const inw = new Set(ae ? ae.cells : []);
+  for(let k=0;k<100;k++){
+    const el = S.els[k];
+    if(S.kind[k]==="letter"){
+      el.textContent = S.letters[k];
+      el.classList.toggle("inword", inw.has(k) && k!==S.cur);
+      el.classList.toggle("cur", k===S.cur);
+      el.classList.toggle("bad", !!S.bad[k]);
+      el.classList.toggle("hint", !!S.hint[k]);
+    } else if(S.kind[k]==="clue"){
+      el.classList.toggle("active", !!ae && S.clueAt[k]===ae);
+    }
+  }
+}
+function updateBar(){
+  const e = activeEntry(), bar = $("#clueBar");
+  if(!e){ bar.innerHTML = ""; return; }
+  const arrow = e.dir==="right" ? "▶" : "▼";
+  const th = document.createElement("div"); th.className = "th";
+  if(e.type==="photo"){
+    const u = photoCache[e.photo];
+    if(u){ th.style.backgroundImage = "url('"+u+"')"; th.style.cursor = "zoom-in"; th.onclick = () => showBigPhoto(e); }
+    else th.textContent = "📷";
+  } else th.textContent = EMO[e.topic]||"❓";
+  const tx = document.createElement("div"); tx.className = "tx";
+  tx.innerHTML = '<b>'+arrow+' №'+e.num+'</b> · '+esc(e.topic)+' · '+e.answer.length+' літ.<br>'+esc(e.clue);
+  bar.innerHTML = ""; bar.appendChild(th); bar.appendChild(tx);
+}
+function showBigPhoto(e){
+  const u = photoCache[e.photo]; if(!u) return;
+  openModal('<img class="big" src="'+esc(u)+'" alt=""><p style="text-align:center">'+esc(e.clue)+'</p>', [{text:"Закрити"}]);
+}
+function selectCell(k){
+  if(!S || S.done) return;
+  if(S.kind[k]==="clue"){ const e = S.clueAt[k]; S.cur = firstEmpty(e); S.dir = e.dir; }
+  else if(S.kind[k]==="letter"){
+    const m = S.cm[k]; let d = S.dir;
+    if(k===S.cur && m.right && m.down) d = S.dir==="right" ? "down" : "right";
+    else if(!m[d]) d = m.right ? "right" : "down";
+    S.cur = k; S.dir = d;
+  } else return;
+  haptic(); paint(); updateBar();
+}
+$("#grid").addEventListener("click", e => { const c = e.target.closest(".cell"); if(c) selectCell(+c.dataset.k); });
+
+function moveNext(){
+  const e = activeEntry(); if(!e) return;
+  const i = e.cells.indexOf(S.cur);
+  if(i<e.cells.length-1) S.cur = e.cells[i+1];
+}
+function typeCh(ch){
+  if(!S || S.done || S.cur==null || S.kind[S.cur]!=="letter") return;
+  if(!ALPHA.has(ch)) return;
+  const k = S.cur;
+  if(!S.hint[k]){ S.letters[k] = ch; S.bad[k] = 0; }
+  sound.tick(); haptic();
+  moveNext(); paint(); updateBar(); save(); checkWin();
+}
+function backspace(){
+  if(!S || S.done || S.cur==null) return;
+  const k = S.cur;
+  if(S.letters[k] && !S.hint[k]){ S.letters[k] = ""; S.bad[k] = 0; }
+  else {
+    const e = activeEntry(), i = e ? e.cells.indexOf(k) : -1;
+    if(i>0){ S.cur = e.cells[i-1]; if(!S.hint[S.cur]){ S.letters[S.cur] = ""; S.bad[S.cur] = 0; } }
+  }
+  paint(); updateBar(); save();
+}
+document.addEventListener("keydown", ev => {
+  if(!$("#s-game").classList.contains("on") || !$("#modal").classList.contains("hidden") || !S) return;
+  if(ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  if(ev.key==="Backspace"){ ev.preventDefault(); backspace(); return; }
+  if(ev.key==="Tab"){ ev.preventDefault(); selectCell(S.cur); return; }
+  const mv = {ArrowLeft:[0,-1],ArrowRight:[0,1],ArrowUp:[-1,0],ArrowDown:[1,0]}[ev.key];
+  if(mv){
+    ev.preventDefault();
+    let r = Math.floor(S.cur/10)+mv[0], c = S.cur%10+mv[1];
+    while(r>=0&&r<10&&c>=0&&c<10){ if(S.kind[r*10+c]==="letter"){ S.cur = r*10+c; const m = S.cm[S.cur]; if(!m[S.dir]) S.dir = m.right?"right":"down"; paint(); updateBar(); return; } r+=mv[0]; c+=mv[1]; }
+    return;
+  }
+  const ch = ev.key.length===1 ? ev.key.toUpperCase() : "";
+  if(ch==="’"||ch==="ʼ") typeCh("'");
+  else if(ALPHA.has(ch)) typeCh(ch);
+});
+
+/* ============ Дії ============ */
+function save(){
+  if(!S) return;
+  const rec = issueRec(S.id);
+  rec.letters = S.letters.slice(); rec.hint = S.hint.slice();
+  rec.time = S.time; rec.hints = S.hints; rec.checks = S.checks;
+  persist();
+}
+$("#a-hint").onclick = () => {
+  if(!S || S.done) return;
+  const e = activeEntry(); if(!e) return;
+  let k = S.cur;
+  if(S.letters[k]===S.sol[k]) { const f = e.cells.find(c => S.letters[c]!==S.sol[c]); if(f===undefined){ toast("Це слово вже розгадано"); return; } k = f; }
+  S.letters[k] = S.sol[k]; S.hint[k] = 1; S.bad[k] = 0; S.hints++; S.cur = k;
+  sound.ok(); haptic(); toast("Підказка: −50 очок");
+  paint(); updateBar(); save(); checkWin();
+};
+$("#a-check").onclick = () => {
+  if(!S || S.done) return;
+  let filled = 0, bad = 0;
+  for(let k=0;k<100;k++){
+    if(S.kind[k]!=="letter" || !S.letters[k]) continue;
+    filled++;
+    if(S.letters[k]!==S.sol[k]){ S.bad[k] = 1; bad++; } else S.bad[k] = 0;
+  }
+  if(!filled) toast("Спочатку впиши кілька літер");
+  else if(bad){ S.checks++; sound.err(); haptic("err"); toast("Помилок: "+bad+" (−20 очок)"); }
+  else { sound.ok(); toast("Помилок немає ✓"); }
+  paint(); save();
+};
+$("#a-list").onclick = () => {
+  if(!S) return;
+  const items = S.entries.slice().sort((a,b)=>a.num-b.num);
+  const html = '<h3>Питання</h3><div id="qlist"></div>';
+  openModal(html, [{text:"Закрити"}]);
+  const box = $("#qlist");
+  items.forEach(e => {
+    const done = e.cells.every(k => S.letters[k]===S.sol[k]);
+    const d = document.createElement("div"); d.className = "qitem"+(done?" done":"");
+    d.innerHTML = '<div class="q1">'+(e.dir==="right"?"▶":"▼")+' №'+e.num+'</div><div>'+(EMO[e.topic]||"")+' '+esc(e.clue)+' <i>('+e.answer.length+')</i></div>';
+    d.onclick = () => { closeModal(); S.cur = firstEmpty(e); S.dir = e.dir; paint(); updateBar(); };
+    box.appendChild(d);
+  });
+};
+$("#g-back").onclick = () => { save(); stopTimer(); back(); };
+
+/* ============ Таймер ============ */
+function startTimer(){
+  stopTimer();
+  timer = setInterval(() => {
+    if(document.hidden || !S || S.done || !$("#s-game").classList.contains("on")) return;
+    S.time++; $("#g-time").textContent = fmt(S.time);
+    if(S.time%5===0) save();
+  }, 1000);
+}
+function stopTimer(){ if(timer){ clearInterval(timer); timer = null; } }
+document.addEventListener("visibilitychange", () => { if(document.hidden) save(); });
+
+/* ============ Перемога ============ */
+function checkWin(){
+  for(let k=0;k<100;k++) if(S.kind[k]==="letter" && S.letters[k]!==S.sol[k]) return;
+  S.done = true; stopTimer();
+  const score = Math.max(100, 1000 - Math.floor(S.time/3) - S.hints*50 - S.checks*20);
+  const rec = issueRec(S.id);
+  const record = score > (rec.best||0);
+  rec.done = true; rec.letters = S.letters.slice(); rec.hint = S.hint.slice();
+  rec.time = S.time; rec.hints = S.hints; rec.checks = S.checks;
+  if(record){ rec.best = score; rec.bestTime = S.time; }
+  persist(); pushScore(); sound.win();
+  S.bad.fill(0); paint();
+  const idx = DATA.findIndex(p=>p.id===S.id), nxt = DATA[idx+1];
+  const btns = [];
+  if(nxt) btns.push({text:"▶ Випуск №"+nxt.id, primary:true, fn:()=>{ const id = nxt.id; const r = SAVE.issues[id]; if(r && r.done) resetIssue(id); startGame(id); }});
+  btns.push({text:"До меню", fn:()=>{ stack = ["s-menu"]; show("s-menu",false); renderMenu(); }});
+  setTimeout(() => openModal(
+    "<h3>🎉 Сканворд розв'язано!</h3><p>Час: <b>"+fmt(S.time)+"</b></p><p>Підказок: <b>"+S.hints+"</b> · перевірок із помилками: <b>"+S.checks+"</b></p><p>Очки: <b>"+score+"</b>"+(record?" — новий рекорд! 🏅":" (рекорд: "+rec.best+")")+"</p>", btns), 350);
+}
+
+/* ============ Зал слави ============ */
+function totals(){
+  let score = 0, solved = 0;
+  DATA.forEach(p => { const r = SAVE.issues[p.id]; if(r && (r.best>0)){ score += r.best; solved++; } });
+  return {score, solved};
+}
+function fbBase(){ return CFG.FIREBASE_DB_URL ? CFG.FIREBASE_DB_URL.replace(/\/+$/,"") : ""; }
+async function pushScore(){
+  const base = fbBase(), u = userInfo(); if(!base || !u) return;
+  const t = totals();
+  try{
+    await fetch(base+"/scanword/players/"+encodeURIComponent(u.id)+".json", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name:u.name, score:t.score, solved:t.solved, t:Date.now()})});
+  }catch(e){}
+}
+async function renderFame(){
+  const box = $("#fameBody"), t = totals(), u = userInfo(), base = fbBase();
+  let html = '<p class="note"><b>Твої результати:</b> розв\'язано '+t.solved+' із '+DATA.length+', разом очок: <b>'+t.score+'</b></p>';
+  box.innerHTML = html;
+  if(!base){
+    box.insertAdjacentHTML("beforeend", '<p class="note">Загальний рейтинг гравців поки не підключено. Додай адресу Firebase у файл <b>config.js</b>, і тут з\'явиться таблиця лідерів.</p>');
+  } else {
+    box.insertAdjacentHTML("beforeend", '<p class="note" id="fl">Завантаження рейтингу…</p>');
+    try{
+      if(u) await pushScore();
+      const r = await fetch(base+"/scanword/players.json"); const o = await r.json();
+      const list = Object.entries(o||{}).map(([id,v]) => ({id, name:String(v.name||"Гравець"), score:+v.score||0, solved:+v.solved||0}))
+        .sort((a,b)=>b.score-a.score).slice(0,50);
+      $("#fl").remove();
+      if(!list.length) box.insertAdjacentHTML("beforeend", '<p class="note">Рейтинг поки порожній. Розв\'яжи перший сканворд!</p>');
+      list.forEach((v,i) => {
+        const d = document.createElement("div"); d.className = "row"+(u && u.id===v.id?" me":"");
+        const medal = i===0?"🥇":i===1?"🥈":i===2?"🥉":String(i+1);
+        d.innerHTML = '<div class="pos">'+medal+'</div><div class="nm"></div><div class="sc">'+v.score+' ('+v.solved+')</div>';
+        d.querySelector(".nm").textContent = v.name;
+        box.appendChild(d);
+      });
+    }catch(e){ const f = $("#fl"); if(f) f.textContent = "Не вдалося завантажити рейтинг."; }
+  }
+  // особисті рекорди
+  box.insertAdjacentHTML("beforeend", '<h3 style="margin:16px 0 4px">Мої рекорди</h3>');
+  DATA.forEach(p => {
+    const r = SAVE.issues[p.id]; if(!r || !r.best) return;
+    const d = document.createElement("div"); d.className = "row";
+    d.innerHTML = '<div class="pos">№'+p.id+'</div><div class="nm">'+fmt(r.bestTime||0)+'</div><div class="sc">'+r.best+'</div>';
+    box.appendChild(d);
+  });
+  if(!t.solved) box.insertAdjacentHTML("beforeend", '<p class="note">Тут з\'являться твої рекорди.</p>');
+}
+
+/* ============ Розмітка під екран ============ */
+function layout(){
+  if(!S || !$("#s-game").classList.contains("on")) return;
+  const W = window.innerWidth, H = window.innerHeight;
+  const head = 46, land = W > H*1.1;
+  let side;
+  if(land) side = Math.min(H - head - 16, W*0.52);
+  else side = Math.min(W - 16, H - head - 58 - 40 - 140 - 34);
+  side = Math.max(220, Math.floor(side/10)*10);
+  const g = $("#grid");
+  g.style.width = g.style.height = side+"px";
+  document.documentElement.style.setProperty("--cell", (side/10)+"px");
+}
+window.addEventListener("resize", layout);
+window.addEventListener("orientationchange", () => setTimeout(layout,150));
+if(tg && tg.onEvent) tg.onEvent("viewportChanged", layout);
+
+/* ============ Кнопки меню ============ */
+document.querySelectorAll("[data-back]").forEach(b => b.onclick = back);
+$("#b-continue").onclick = () => { const id = inProgressId() || nextUnsolvedId(); if(id!==undefined) startGame(id); };
+$("#b-issues").onclick = () => { renderIssues(); show("s-issues"); };
+$("#b-help").onclick = () => show("s-help");
+$("#b-fame").onclick = () => { show("s-fame"); renderFame(); };
+$("#b-settings").onclick = () => { $("#t-sound").classList.toggle("on", !!SAVE.sound); $("#ver").textContent = CFG.VERSION; show("s-settings"); };
+$("#t-sound").onclick = () => { SAVE.sound = !SAVE.sound; persist(); $("#t-sound").classList.toggle("on", !!SAVE.sound); if(SAVE.sound) sound.ok(); };
+$("#b-reset").onclick = () => confirmBox("Скинути прогрес?", "Усі результати й розгадані сканворди на цьому пристрої буде стерто.", "Так, скинути", () => { SAVE = {sound:SAVE.sound,last:null,issues:{}}; persist(); toast("Прогрес скинуто"); renderMenu(); });
+
+/* ============ Старт ============ */
+(async function init(){
+  try{ if(tg){ tg.ready(); tg.expand(); tg.setHeaderColor && tg.setHeaderColor("#f3ead2"); tg.setBackgroundColor && tg.setBackgroundColor("#f3ead2"); tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } }catch(e){}
+  await loadData();
+  renderMenu();
+})();
+</script>
+</body>
+</html>
