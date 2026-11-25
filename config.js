@@ -2,12 +2,12 @@
 // Змінюй лише значення в лапках.
 window.APP_CONFIG = {
   // Посилання на твого бота (необов'язково), наприклад "https://t.me/my_scanword_bot"
-  BOT_LINK: "",
+  BOT_LINK: "http://t.me/sorochynska_yarmarka_ua_bot",
 
   // Адреса Firebase Realtime Database для «Залу слави» (необов'язково).
   // Приклад: "https://my-project-default-rtdb.europe-west1.firebasedatabase.app"
   // Якщо порожньо — Зал слави показує лише твої особисті результати.
-  FIREBASE_DB_URL: "",
+  FIREBASE_DB_URL: "https://sorochynska-yarmarka-default-rtdb.europe-west1.firebasedatabase.app/",
 
   // Файл з випусками
   DATA_FILE: "scanwords.json",
