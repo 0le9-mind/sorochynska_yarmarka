@@ -401,21 +401,34 @@ async function wikiFetch(url){
   try{ const r = await fetch(url, {signal:ctl.signal}); if(!r.ok) return null; return await r.json(); }
   catch(e){ return null; } finally{ clearTimeout(t); }
 }
-// Фото з Вікіпедії за назвою статті (або пошуком, якщо точної статті немає)
+// Фото з Вікіпедії: кілька способів по черзі, щоб фото з'явилось навіть якщо перший не спрацював
+const J = u => wikiFetch(u);
+async function srcSummary(title){
+  const j = await J("https://uk.wikipedia.org/api/rest_v1/page/summary/"+encodeURIComponent(title.replace(/ /g,"_"))+"?redirect=true");
+  return j && ((j.thumbnail && j.thumbnail.source) || (j.originalimage && j.originalimage.source)) || null;
+}
+async function srcSearch(title){
+  const k = await J("https://uk.wikipedia.org/w/api.php?action=query&format=json&origin=*&redirects=1&generator=search&gsrlimit=1&prop=pageimages&piprop=thumbnail&pithumbsize=400&gsrsearch="+encodeURIComponent(title));
+  const pg = k && k.query && k.query.pages ? Object.values(k.query.pages)[0] : null;
+  return pg && pg.thumbnail && pg.thumbnail.source || null;
+}
+async function srcWikidata(title){
+  const f = await J("https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json&origin=*&language=uk&uselang=uk&limit=1&search="+encodeURIComponent(title));
+  const id = f && f.search && f.search[0] && f.search[0].id; if(!id) return null;
+  const g = await J("https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&origin=*&props=claims&ids="+id);
+  const cl = g && g.entities && g.entities[id] && g.entities[id].claims;
+  const name = cl && cl.P18 && cl.P18[0] && cl.P18[0].mainsnak && cl.P18[0].mainsnak.datavalue && cl.P18[0].mainsnak.datavalue.value;
+  return name ? "https://commons.wikimedia.org/wiki/Special:FilePath/"+encodeURIComponent(name)+"?width=400" : null;
+}
 async function wikiThumb(title){
-  const key = "wk1_"+title;
-  try{ const c = localStorage.getItem(key); if(c) return c; }catch(e){}
-  let url = null;
-  const j = await wikiFetch("https://uk.wikipedia.org/api/rest_v1/page/summary/"+encodeURIComponent(title.replace(/ /g,"_"))+"?redirect=true");
-  if(j && j.thumbnail && j.thumbnail.source) url = j.thumbnail.source;
-  if(!url){
-    const q = "https://uk.wikipedia.org/w/api.php?action=query&format=json&origin=*&redirects=1&generator=search&gsrlimit=1&prop=pageimages&piprop=thumbnail&pithumbsize=400&gsrsearch="+encodeURIComponent(title);
-    const k = await wikiFetch(q);
-    const pg = k && k.query && k.query.pages ? Object.values(k.query.pages)[0] : null;
-    if(pg && pg.thumbnail && pg.thumbnail.source) url = pg.thumbnail.source;
+  const key = "wk2_"+title;
+  try{ const c = localStorage.getItem(key); if(c){ if(await loadImg(c)) return c; localStorage.removeItem(key); } }catch(e){}
+  for(const src of [srcSummary, srcSearch, srcWikidata]){
+    let u = null;
+    try{ u = await src(title); }catch(e){}
+    if(u && await loadImg(u)){ try{ localStorage.setItem(key, u); }catch(e){} return u; }
   }
-  if(url){ try{ localStorage.setItem(key, url); }catch(e){} }
-  return url;
+  return null;
 }
 function findPhoto(e){
   const path = e.photo;
@@ -429,10 +442,22 @@ function findPhoto(e){
     // 2) інакше — Вікіпедія
     if(e.wiki){
       const u = await wikiThumb(e.wiki);
-      if(u && await loadImg(u)){ photoCache[path] = u; return u; }
+      if(u){ photoCache[path] = u; return u; }
     }
     photoCache[path] = null; return null;
   })();
+}
+// Повторна спроба, якщо фото не завантажилось (торкнись значка 📷)
+let retrying = false;
+function retryPhoto(e){
+  if(retrying) return; retrying = true; toast("Шукаю фото…");
+  delete photoCache[e.photo];
+  try{ localStorage.removeItem("wk2_"+e.wiki); }catch(x){}
+  findPhoto(e).then(u => {
+    retrying = false;
+    if(S){ paintPhotos(); updateBar(); }
+    if(u) toast("Фото знайдено"); else toast("Фото не завантажилось. Перевір інтернет і спробуй ще раз");
+  });
 }
 
 function startGame(id){
@@ -535,7 +560,7 @@ function updateBar(){
   if(e.type==="photo"){
     const u = photoCache[e.photo];
     if(u){ th.style.backgroundImage = "url('"+u+"')"; th.style.cursor = "zoom-in"; th.onclick = () => showBigPhoto(e); }
-    else th.textContent = "📷";
+    else { th.textContent = "📷"; th.style.cursor = "pointer"; th.onclick = () => retryPhoto(e); }
   } else th.textContent = EMO[e.topic]||"❓";
   const tx = document.createElement("div"); tx.className = "tx";
   tx.innerHTML = '<b>'+arrow+' №'+e.num+'</b> · '+esc(e.topic)+' · '+e.answer.length+' літ.<br>'+esc(e.clue);
@@ -547,7 +572,7 @@ function showBigPhoto(e){
 }
 function selectCell(k){
   if(!S || S.done) return;
-  if(S.kind[k]==="clue"){ const e = S.clueAt[k]; S.cur = firstEmpty(e); S.dir = e.dir; }
+  if(S.kind[k]==="clue"){ const e = S.clueAt[k]; S.cur = firstEmpty(e); S.dir = e.dir; if(e.type==="photo" && photoCache[e.photo]===null) retryPhoto(e); }
   else if(S.kind[k]==="letter"){
     const m = S.cm[k]; let d = S.dir;
     if(k===S.cur && m.right && m.down) d = S.dir==="right" ? "down" : "right";
